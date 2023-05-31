@@ -1,0 +1,56 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+.vs/
+.vscode/
+out/
+
+# Build folders
+Build/
+build/
+cmake-build-*
+bin
+lib
+solutions
+
+# IDE settings
+.idea/
+
+# For now do not upload assets since
+# As they might take some space on git
+Assets/
+
+Temp/
+
+# Autodoc
+Docs/cpp/
