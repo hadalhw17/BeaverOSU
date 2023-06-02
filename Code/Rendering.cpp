@@ -12,7 +12,7 @@ class CRenderingCache {
   public:
 	std::pair<Handle<CMesh>, CMesh*> GetMesh(Assets<CMesh>& meshes) {
 		if(!hMesh) {
-			hMesh = meshes.Create(CMesh{"UIMesh"});
+			hMesh = meshes.Create(CMesh{"OSUMesh"}.AllowRaytracing(false));
 		}
 		return {hMesh, meshes.GetMut(hMesh)};
 	}
@@ -32,10 +32,11 @@ class CRenderingCache {
 		return hMat;
 	}
 
+	std::vector<std::pair<uint32, HandleUntyped>> PreviousMaterials;
   private:
 	// Weak handles based on texture+colour lookup
 	std::unordered_map<AssetId, Handle<Sprite::SpriteMaterial>> m_materialCache;
-	Handle<CMesh>                                    hMesh;
+	Handle<CMesh>                                               hMesh;
 };
 
 namespace Geometry {
@@ -93,98 +94,35 @@ struct ExtractedHitObject {
 	float Opacity;
 	std::vector<int2> SliderPoints;
 };
-
 using TExtractedObjects = std::vector<ExtractedHitObject>;
 
 void ExtractActiveObjects(TExtractedObjects& dst, 
 	CWorld& world,
 	const Query<With<CBeatmapController, SParentComponent>>& controllers,
-	const Query<With<HitObject, WorldSpaceTransform>>& toExtract) {
-	auto computeRadius = [](const int cs) {
-		constexpr float BaseRad      = 54.4f;
-		constexpr float ShrinkFactor = 4.48f;
-		return BaseRad - ShrinkFactor * static_cast<float>(cs);
-	};
-	auto computeFadeIn = [](const int ar) {
-		if (ar < 5) {
-			return 800.f + 400.f * (5.f - static_cast<float>(ar)) / 5.f;
-		} else if (ar == 5) {
-			return 800.f;
-		} else {
-			return 800.f - 500.f * (static_cast<float>(ar) - 5.f) / 5.f;
+	const Query<With<VisibilityProperties, HitObject, WorldSpaceTransform, DifficultyProperties>>& visibleObjects
+) {
+	visibleObjects.each([&](const VisibilityProperties& vis,
+							const HitObject&            hitObj,
+							const WorldSpaceTransform&  xForm,
+							const DifficultyProperties& props) {
+		auto& obj = dst.emplace_back(ExtractedHitObject{
+			.Position            = xForm.m_translation.xy(),
+			.Radius              = props.Radius,
+			.ApproachCircleScale = vis.ApproachAmount,
+			.SliderT             = vis.SliderT,
+			.Opacity = std::clamp(vis.TimeSinceSpawn, 0.f, props.FadeIn) /
+					   props.FadeIn,
+		});
+
+		if (hitObj.Type == HitObject::Slider) {
+			obj.SliderPoints =
+				std::get<HitCurve>(hitObj.ObjectParams).CurvePoints;
+			obj.SliderPoints.insert(std::begin(obj.SliderPoints), obj.Position);
 		}
-	};
-
-	auto computePreempt = [](const int ar) {
-		if (ar < 5) {
-			return 1200.f + 600.f * (5.f - static_cast<float>(ar)) / 5.f;
-		} else if (ar == 5) {
-			return 1200.f;
-		} else {
-			return 1200.f - 750.f * (static_cast<float>(ar) - 5.f) / 5.f;
-		}
-	};
-
-	auto computeSliderLength = [](const int   sliderRepeat,
-								  const float sliderPixelLength,
-								  int sliderMul, float velocity,
-								  float beatLen = 300) {
-		return (sliderPixelLength /
-				(static_cast<float>(sliderMul) * 100.f * velocity) * beatLen) *
-			   (std::max(sliderRepeat, 1));
-	};
-
-	for(const auto& hController: controllers) {
-		auto next = controllers.get<SParentComponent>(hController).first;
-		const auto& controller = controllers.get<CBeatmapController>(hController);
-		const auto currentTime = controller.CurrentTime;
-		const auto fadein  = computeFadeIn(controller.Difficulty.ApproachRate);
-		const auto preempt = computePreempt(controller.Difficulty.ApproachRate);
-
-		while(next) {
-			const auto& hitObj = world.GetComponent<HitObject>(next);
-			const auto& xForm = toExtract.get<WorldSpaceTransform>(next);
-			const auto dt = currentTime - hitObj.Time;
-			const std::pair<float, float> duration = [&] {
-				if(hitObj.Type == HitObject::Slider) {
-					const auto& slider = std::get<HitCurve>(hitObj.ObjectParams);
-					const float len = computeSliderLength(slider.Slides, slider.Length,
-											  std::max(controller.Difficulty.SliderMultiplier, 1),
-											  1.f/*controller.Difficulty.SliderVelocity*/);
-					return std::pair<float, float>{len, len * slider.Slides};
-				} else {
-					return std::pair{0.f, 0.f};
-				}
-			}();
-			if(dt > 0 && dt < preempt + duration.second) {
-				const auto fact  = static_cast<float>(dt);
-				const auto durationFac = fact - preempt;
-				const auto iteration   = static_cast<int>(std::floor(durationFac / duration.first));
-				const auto slideTime   = durationFac - iteration * duration.first;
-				const auto t = iteration % 2 == 0 ? slideTime / duration.first : 1.f - (slideTime / duration.first);
-
-				auto&      obj  = dst.emplace_back(ExtractedHitObject{
-						   .Position = xForm.m_translation.xy(),
-						   .Radius = computeRadius(controller.Difficulty.CircleSize),
-						   .ApproachCircleScale = glm::lerp(
-							   1.f, 0.5f,
-							   std::clamp(fact, 0.f, preempt) / preempt),
-						   .SliderT = t * static_cast<float>(dt >= preempt),
-						   .Opacity = std::clamp(fact, 0.f, fadein) / fadein,
-                });
-
-				if(hitObj.Type == HitObject::Slider) {
-					obj.SliderPoints = std::get<HitCurve>(hitObj.ObjectParams).CurvePoints;
-					obj.SliderPoints.insert(std::begin(obj.SliderPoints), obj.Position);
-				}
-			}
-
-			next = world.GetComponent<SHierarchyComponent>(next).next;
-		}
-	}
+	});
 }
-
 } // namespace OSU
+
 constexpr int BinomialCoefficient(const int n, const int k) {
 	if (k == 0 || k == n) {
 		return 1;
@@ -228,17 +166,27 @@ struct Raven::TComponentRenderSystem<OSU::HitObject> {
 			return;
 
 		auto [hMesh, pMesh] = cache.GetMesh(meshes);
+
+		if(!cache.PreviousMaterials.empty()) {
+			SRenderMesh mesh{};
+			mesh.cullMask = ~0u;
+			mesh.hMesh    = hMesh;
+			ctx.AddMeshPrimitives(mesh, cache.PreviousMaterials, ECoreRenderPhases::HUD);
+			cache.PreviousMaterials.clear();
+		}
 		pMesh->Reset();
 
 		auto addMaterialPrimitive = [lastBatchSprite = 0u, pMesh, &cache, &materials](const Handle<CImage>& img, const uint32 spriteIdx, const bool isFont) mutable {
 			const uint32 diff = spriteIdx - lastBatchSprite;
+			const auto hMat = cache.GetSpriteMaterialForTexture(materials, img, isFont).Untyped();
 			pMesh->AddPrimitive(SMeshPrimitive {
-				.hMaterial    = cache.GetSpriteMaterialForTexture(materials, img, isFont).Untyped(),
+				.hMaterial    = hMat,
 				.indexOffset  = lastBatchSprite * 6,
 				.indexCount   = diff * 6,
 				.vertexOffset = 0,
 				.vertexCount  = diff * 4,
 			});
+			cache.PreviousMaterials.emplace_back(static_cast<uint32>(pMesh->GetRenderPrimitives().size() - 1), hMat);
 			lastBatchSprite = spriteIdx;
 		};
 
@@ -358,11 +306,6 @@ struct Raven::TComponentRenderSystem<OSU::HitObject> {
 		}
 
 		pMesh->ComputeBounds();
-
-		SRenderMesh mesh{};
-		mesh.cullMask = ~0u;
-		mesh.hMesh    = hMesh;
-		ctx.AddRenderMesh(mesh, ECoreRenderPhases::HUD);
 		extracted.clear();
 	}
 };

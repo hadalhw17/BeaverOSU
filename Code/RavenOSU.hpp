@@ -1,4 +1,5 @@
 #pragma once
+#include <RavenWorld/WorldDefs.hpp>
 
 namespace Raven {
 class CImage;
@@ -32,12 +33,12 @@ struct HitObject {
 	std::variant<std::monostate, HitCurve> ObjectParams{std::monostate{}};
 };
 struct Difficulty {
-	int HPDrainRate       = 1;
-	int CircleSize        = 1;
-	int OverallDifficulty = 1;
-	int ApproachRate      = 1;
-	int SliderMultiplier  = 1;
-	int SliderTickRate    = 1;
+	float HPDrainRate       = 1.f;
+	float CircleSize        = 1.f;
+	float OverallDifficulty = 1.f;
+	float ApproachRate      = 1.f;
+	float SliderMultiplier  = 1.f;
+	float SliderTickRate    = 1.f;
 };
 
 struct General {
@@ -47,6 +48,23 @@ struct General {
 	int         PreviewTime = 0;
 	int         Countdown   = 0;
 };
+
+struct DifficultyProperties {
+	float Radius;
+	float Preempt;
+	float FadeIn;
+	float DurationSingle = 0.f;
+	float DurationTotal = 0.f;
+};
+
+struct VisibilityProperties {
+	float TimeSinceSpawn;
+	float ApproachAmount; // 0 to 1 where 1 is fully apprached
+	float SliderT;
+};
+
+struct Hovered{};
+struct ActiveMousePos{ uint2 Pos; float2 ToOsuScale; float2 FromOSUScale; Raven::TEntity CursorEntity; };
 
 struct Skin {
 	using TImageMap =
