@@ -1,11 +1,20 @@
 #pragma once
 #include <RavenWorld/WorldDefs.hpp>
+#include <RavenApp/RavenApp.hpp>
 
 namespace Raven {
 class CImage;
 }
 
 namespace OSU {
+enum class EGameState{
+	None = 0,
+	Menu,
+	Playing,
+	Paused,
+};
+constexpr inline auto StateStage = Raven::DefaultStages::FIRST;
+
 struct HitCurve {
 	enum Type {
 		Bezier = 0,
@@ -97,4 +106,26 @@ struct CBeatmapController {
 	int64                   CurrentTime = 0;
 	int64                   MaxTime     = 0;
 };
+
+struct GameScores {
+	int32 Score = 0;
+	int32 Combo = 0;
+	int32 MaxCombo = 0;
+	int32 Hit300 = 0;
+	int32 Hit100 = 0;
+	int32 Hit50 = 0;
+	int32 HitMiss = 0;
+	int32 ScoreRaw = 0;
+};
+
+template <typename T> Raven::SystemDesc GameStartSystem(T&& sys) {
+	return Raven::SystemDesc{std::forward<T>(sys)}.WithCondition(
+		Raven::State<EGameState>::OnEnter(EGameState::Playing));
+}
+
+template <typename T> Raven::SystemDesc GameExitSystem(T&& sys) {
+	return Raven::SystemDesc{std::forward<T>(sys)}.WithCondition(
+		Raven::State<EGameState>::OnExit(EGameState::Playing));
+}
+
 } // namespace OSU

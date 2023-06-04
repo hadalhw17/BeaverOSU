@@ -10,6 +10,7 @@
 #include "RavenOSU.hpp"
 #include <RavenWorld/DefaultComponents.hpp>
 #include <RavenRenderer/RenderOutput.hpp>
+#include <CVar.hpp>
 
 namespace OSU {
 using namespace Raven;
@@ -247,6 +248,7 @@ void InitialiseHitObjects(
 		if (!pBeatmap)
 			continue;
 		comp.Difficulty = pBeatmap->GetDifficulty();
+		world.AddComponent<GameScores>(hBmap);
 		auto hSong      = mgr.Load(app, pBeatmap->GetSongPath())
 						 .OnSuccess()
 						 .Typed<Audio::Sound>();
@@ -254,7 +256,7 @@ void InitialiseHitObjects(
 										  Audio::Player{.Sound         = hSong,
 														.PlaybackSpeed = 1.f,
 														.Volume        = 1.f,
-														.IsLooping     = true,
+														.IsLooping     = false,
 														.IsPlaying     = true});
 
 		comp.CurrentTime = 0;
@@ -272,14 +274,39 @@ void InitialiseHitObjects(
 }
 
 void AdvanceSimulation(
-	const Query<With<CBeatmapController, SParentComponent, Audio::Player>>& controllers,
-	const CTimestep&                                         ts) {
+	const Query<With<CBeatmapController, SParentComponent, Audio::Player>>&
+					   controllers,
+	State<EGameState>& stateMachine) {
 
 	for (const auto& hController : controllers) {
-		const auto playingTime = controllers.get<Audio::Player>(hController).PlayingTime;
+		const auto& player = controllers.get<Audio::Player>(hController);
+		if (!player.IsPlaying) {
+			stateMachine.Set(EGameState::Menu);
+			break;
+		}
 		controllers.get<CBeatmapController>(hController).CurrentTime =
-			playingTime;
+			player.PlayingTime;
 	}
+}
+
+void RemoveAllMaps(CWorld& world, const Query<With<CBeatmapController>>& beatmaps) {
+	for (const auto& hController : beatmaps) {
+		world.RemoveEntity(hController);
+	}
+}
+void EndSimulation(
+	CWorld& world,
+	const Query<With<CBeatmapController, SParentComponent, Audio::Player>>& controllers,
+	State<EGameState>& stateMachine) {
+
+	bool isDone = true;
+	for (const auto& hController : controllers) {
+		isDone = isDone && !controllers.get<Audio::Player>(hController).IsPlaying;
+	}
+	if(isDone) {
+		stateMachine.Set(EGameState::Menu);
+	}
+
 }
 
 Skin LoadSkin(App& app, std::string_view skinDir) {
@@ -549,6 +576,43 @@ void UpdateScore(CWorld& world, const Query<With<ScoreDriver>>& scores,
 	}
 }
 
+void CollectScores(
+	const Query<With<GameScores>>&                            scores,
+	const Query<With<Initialised<ScoreDriver>, ScoreDriver>>& newScores) {
+	GameScores& collector = scores.GetSingle();
+	for (auto hScore : newScores) {
+		auto& score = newScores.get<ScoreDriver>(hScore);
+		switch (score.Score) {
+		case 0: {
+			collector.Combo = 0;
+			collector.HitMiss++;
+			break;
+		}
+		case 50: {
+			collector.Combo++;
+			collector.Hit50++;
+			break;
+		}
+		case 100: {
+			collector.Combo++;
+			collector.Hit100++;
+			break;
+		}
+		case 300: {
+			collector.Combo++;
+			collector.Hit300++;
+			break;
+		}
+		default:
+			RavenLogWarning("Undefined score value: {}!", score.Score);
+			break;
+		}
+		collector.ScoreRaw += score.Score;
+		collector.Score += score.Score * std::max(1, collector.Combo);
+		collector.MaxCombo = std::max(collector.Combo, collector.MaxCombo);
+	}
+}
+
 void UpdateCursorParcile(
 	CWorld& world, const Query<With<SRenderInfo, ActiveMousePos>>& cursor,
 	const Query<With<Particles::Emitter, STransformComponent>>& particles) {
@@ -565,31 +629,79 @@ void UpdateCursorParcile(
 	}
 }
 
+struct GameState {
+};
+
+void ToggleSimulation(Raven::App& app, GameState& state, Raven::CWorld& world) {
+	auto* pState = app.GetResource<State<EGameState>>();
+	if(!world.GetSimulationEnabled() && pState) {
+		app.RemoveResource<State<EGameState>>();
+	} else if(world.GetSimulationEnabled() && !pState) {
+		app.CreateResource<State<EGameState>>();
+		app.GetResource<State<EGameState>>()->Push(EGameState::Menu);
+	}
+
+	// Create game settings if they were not created manually
+	//if(world.Query<GameSettings>().empty()) {
+	//	world.AddComponent<GameSettings>(world.CreateEntity("GameSettings"));
+	//}
+}
+
 void BuildRenderingPlugin(Raven::App& app);
+namespace UI {
+	void BuildUIPlugin(Raven::App& app);
+	void BuildPlayerHUD(Raven::App& app);
+}
+
+template <typename T> SystemDesc GameSystem(T&& sys) {
+	return SystemDesc{std::forward<T>(sys)}.WithCondition(
+		State<EGameState>::OnUpdate(EGameState::Playing));
+}
+
+template <typename T> SystemDesc PauseSystem(T&& sys) {
+	return SystemDesc{std::forward<T>(sys)}.WithCondition(
+		State<EGameState>::OnUpdate(EGameState::Paused));
+}
+
+template <typename T> SystemDesc MenuSystem(T&& sys) {
+	return SystemDesc{std::forward<T>(sys)}.WithCondition(
+		State<EGameState>::OnUpdate(EGameState::Menu));
+}
+
 struct Plugin {
 	void Build(Raven::App& app) {
-		using namespace Raven;
-		app.AddPlugin<Audio::Plugin>()
-			.AddPlugin<UI::Plugin>()
+		using State = State<EGameState>;
+		app
+			.CreateResource<GameState>()
+			.AddPlugin<Audio::Plugin>()
+			.AddState<OSU::EGameState>(OSU::StateStage)
+			.AddPlugin<Raven::UI::Plugin>()
 			.AddPlugin<Particles::Plugin>()
 			.AddAsset<CBeatmap>()
 			.AddLoader<CBeatmapLoader>()
 			.AddComponent<CBeatmapController>()
 			.AddComponent<HitObject>()
 			.AddComponent<VisibilityProperties>() // To dispatch signals
-			.AddSystem(DefaultStages::PRE_UPDATE, &InitialiseHitObjects)
-			.AddSystem(Raven::DefaultStages::PRE_UPDATE, &OSU::ComputeDifficultyProps)
-			.AddSystem(Raven::DefaultStages::PRE_UPDATE, &OSU::GetMousePos)
-			.AddSystem(Raven::DefaultStages::UPDATE, &OSU::ComputeVisibleProps)
-			.AddSystem(Raven::DefaultStages::UPDATE, &OSU::MarkMissedNotes)
-			.AddSystem(Raven::DefaultStages::UPDATE, &OSU::UpdateHovered)
-			.AddSystem(Raven::DefaultStages::UPDATE, &OSU::UpdateScore)
+			.AddComponent<ScoreDriver>() // To dispatch signals
+			.AddSystem(DefaultStages::FIRST, &ToggleSimulation)
+			.AddSystem(OSU::StateStage, GameStartSystem(&OSU::InitialiseHitObjects))
+			.AddSystem(DefaultStages::PRE_UPDATE, &OSU::ComputeDifficultyProps)
+			.AddSystem(DefaultStages::PRE_UPDATE, &OSU::GetMousePos)
+			.AddSystem(DefaultStages::UPDATE, &OSU::ComputeVisibleProps)
+			.AddSystem(DefaultStages::UPDATE, &OSU::MarkMissedNotes)
+			.AddSystem(DefaultStages::UPDATE, &OSU::UpdateHovered)
+			.AddSystem(DefaultStages::UPDATE, &OSU::UpdateScore)
+			.AddSystem(DefaultStages::POST_UPDATE, &OSU::CollectScores)
 			//.AddSystem(Raven::DefaultStages::UPDATE, &OSU::UpdateCursorParcile)
-			.AddSystem(DefaultStages::FIRST, &AdvanceSimulation)
+			.AddSystem(OSU::StateStage, GameSystem(&AdvanceSimulation))
+			//.AddSystem(OSU::StateStage, GameSystem(&EndSimulation))
+			.AddSystem(OSU::StateStage, GameExitSystem(&RemoveAllMaps))
 			.AddSystem(DefaultStages::LAST, &CleanUpInteractions)
 			.CreateResource<OSU::Skin>(
 				LoadSkin(app, "project://Assets/Skins/- YUGEN -/"));
 		BuildRenderingPlugin(app);
+		OSU::UI::BuildUIPlugin(app);
+		OSU::UI::BuildPlayerHUD(app);
 	}
 };
 
@@ -602,7 +714,7 @@ int main(int argc, char* argv[]) {
 
 	params.m_windowWidth       = -1;
 	params.m_windowHeight      = -1;
-	params.m_bInitialiseEditor = true;
+	params.m_bInitialiseEditor = false;
 	params.m_argc              = argc;
 	params.m_pArgv             = argv;
 
@@ -614,9 +726,15 @@ int main(int argc, char* argv[]) {
 	app.AddPlugin<OSU::Plugin>();
 
 	if(!params.m_bInitialiseEditor) {
+#if 0
 		auto hRes = app.GetResource<Raven::SAssetManager>()->Load(
 			app, "project://Assets/MyLove.rlevel");
 		hGameWorld = hRes.OnSuccess().Typed<Raven::CWorld>();
+#else
+		hGameWorld = app.GetResource<Assets<CWorld>>()->Create();
+#endif
+
+		Raven::ICVarManager::Get()->SetBoolCVar("r.VolumetricFog", false);
 		auto* pWorld = app.GetResource<Assets<CWorld>>()->GetMut(hGameWorld);
 		pWorld->SetSimulationEnabled(true);
 		pWorld->SetIsPaused(false);

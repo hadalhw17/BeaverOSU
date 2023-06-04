@@ -14,11 +14,22 @@ file(GLOB OSU
     RavenOSU.hpp
     Rendering.cpp
 )
-
 source_group(OSU FILES ${OSU})
 
-add_executable(GameOSU main.cpp ${OSU})
+file(GLOB UI
+    UI/UICommon.hpp
+    UI/MainMenu.cpp
+    UI/PlayHUD.cpp
+)
+source_group(UI FILES ${UI})
+
+add_executable(GameOSU main.cpp ${OSU} ${UI})
 target_link_libraries(GameOSU PRIVATE RavenEngine RavenVFX RavenUI RavenApp raven_warnings raven_compiler_settings RavenAudio)
+
+target_include_directories(GameOSU 
+    PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 get_filename_component(PROJECT_PATH
                        "${CMAKE_CURRENT_SOURCE_DIR}/.."
