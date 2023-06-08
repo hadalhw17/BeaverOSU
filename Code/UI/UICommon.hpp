@@ -30,7 +30,7 @@ namespace Widgets {
 	world.AddComponent<Style>(
 		hText, Style{
 				   .colour   = {0.f, 0.f, 0.f, 1.f},
-				   .position = {.mainStart = Dimension::Percent(0.2f)},
+				   .position = {.Left = Dimension::Percent(0.2f)},
 				   .size     = Size::Auto(),
 			   });
 	world.AddComponent<Text>(hText,
@@ -49,7 +49,6 @@ static Raven::TEntity SpawnText(Raven::CWorld& world, Raven::TEntity hRoot,
 	world.AddComponent<Style>(
 		hText, Style{
 				   .colour   = colour,
-				   .position = {.mainStart = Dimension::Percent(0.2f)},
 				   .size     = Size::Auto(),
 			   });
 	world.AddComponent<Text>(hText,
@@ -86,6 +85,19 @@ static Raven::TEntity UINode(Raven::CWorld& world, const char* name,
 	world.AddComponent<Raven::UI::Style>(hNode, std::move(style));
 	return hNode;
 }
-
 } // namespace Widgets
+
+static Raven::Handle<Raven::CImage>
+LoadBackgroundImage(Raven::App& app, Raven::SAssetManager& mgr,
+					const CBeatmap& beatmap) {
+	if (!beatmap.GetBackground().empty()) {
+		auto bg = mgr.Load(app, beatmap.GetBackground());
+		if (bg.IsSuccess()) {
+			return bg.OnSuccess().Typed<Raven::CImage>();
+		} else {
+			RavenLogWarning("Failed to load bg: {}", bg.OnFailed());
+		}
+	}
+	return Raven::Handle<Raven::CImage>{};
+}
 } // namespace OSU::UI

@@ -151,16 +151,16 @@ struct Raven::TComponentRenderSystem<OSU::HitObject> {
 	static void Draw(CWorld& world, IFrameContext& ctx, const OSU::Skin& skin,
 					 OSU::TExtractedObjects&         extracted,
 					 Assets<Sprite::SpriteMaterial>& materials,
+					 const Query<With<OSU::ResolutionConversion>>& activeMouse, // resolution scale
 					 Assets<CMesh>& meshes, OSU::CRenderingCache& cache) {
-
 		using namespace Raven;
-		constexpr float2 OSUResolution = {640, 480};
-		const float2     renderRes     = ctx.GetRenderInfo().m_resolution;
-		const float2     resScale      = renderRes / OSUResolution;
-		const float ar                 = renderRes.x / renderRes.y;
-		auto fromOSUPixels = [resScale](const float2 px) {
-			return px * resScale;
+		const auto& mouseConf = activeMouse.get<OSU::ResolutionConversion>(
+			ctx.GetRenderInfo().CameraEntity);
+		const float ar = mouseConf.AspectRatio;
+		auto fromOSUPixels = [scale = mouseConf.FromOSUScale](const float2 px) {
+			return px * scale;
 		};
+
 		const size_t spriteCount = extracted.size();
 		if(spriteCount <= 0)
 			return;
@@ -171,6 +171,7 @@ struct Raven::TComponentRenderSystem<OSU::HitObject> {
 			SRenderMesh mesh{};
 			mesh.cullMask = ~0u;
 			mesh.hMesh    = hMesh;
+			mesh.transform[3][3] = 5.f;
 			ctx.AddMeshPrimitives(mesh, cache.PreviousMaterials, ECoreRenderPhases::HUD);
 			cache.PreviousMaterials.clear();
 		}

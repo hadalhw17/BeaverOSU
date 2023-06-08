@@ -73,7 +73,18 @@ struct VisibilityProperties {
 };
 
 struct Hovered{};
-struct ActiveMousePos{ uint2 Pos; float2 ToOsuScale; float2 FromOSUScale; Raven::TEntity CursorEntity; };
+struct ActiveMousePos {
+	uint2          Pos;
+	Raven::TEntity CursorEntity;
+};
+
+struct ResolutionConversion {
+	float2 ToOsuScale;
+	float2 FromOSUScale;
+	float2 FromTextureScale;
+	float2 ToTextureScale;
+	float  AspectRatio;
+};
 
 struct Skin {
 	using TImageMap =
@@ -92,12 +103,15 @@ class CBeatmap {
 	std::string_view  GetSongPath() const { return m_general.AudioFilename; }
 	const Difficulty& GetDifficulty() const { return m_difficulty; }
 	const General&    GetGeneral() const { return m_general; }
+	const std::string_view GetBackground() const { return m_backgroundPath; }
 
   private:
 	friend class CBeatmapLoader;
 	General                m_general{};
 	Difficulty             m_difficulty{};
 	std::vector<HitObject> m_hitObjects;
+	std::string            m_backgroundPath;
+	std::string            m_path;
 };
 
 struct CBeatmapController {

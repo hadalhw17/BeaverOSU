@@ -8,44 +8,52 @@ struct HUDRoot{};
 struct ComboText{};
 struct AccuracyText{};
 
-void SpawnHUD(CWorld& world, const Appearance& appearance) {
+void SpawnHUD(CWorld& world, const Appearance& appearance, App& app, SAssetManager& mgr, const Assets<CBeatmap>& beatmaps, const Query<With<CBeatmapController>>& gameControllers) {
+	const CBeatmapController& controller = gameControllers.GetSingle();
+
 	auto hHUD = world.CreateEntity("GameHUD");
 	world.AddComponent<STransformComponent>(hHUD);
+
+	auto* pBeatmap = beatmaps.Get(controller.Beatmap);
+	const auto hBGImage = LoadBackgroundImage(app, mgr, *pBeatmap);
 	// Root vbox
 	auto hRoot = Widgets::UINode(world, "GameHUD", Style { 
-		.colour  = {1.f, 1.f, 1.f, 0.0f},
+		.colour  = hBGImage ? SColourF::White() : SColourF::Black(),
 		.size    = Size::All(Dimension::Pc(1.f)),
 		.minSize = Size::All(Dimension::Pc(1.f)),
 		.eDirection = EFlexDirection::Column,
 	});
 	world.AddComponent<Root>(hRoot);
 	world.AddComponent<HUDRoot>(hRoot);
+	if (hBGImage) {
+		world.AddComponent<Raven::UI::Image>(
+			hRoot, Raven::UI::Image{.hImg = hBGImage});
+	}
 
 	// Top hbox
 	auto hTop = Widgets::UINode(world, "Top", Style {
 		.colour     = {1.f, 0.f, 0.f, 0.f},
-		.size       = Size::Height(Dimension::Pc(0.1f)),
 		.minSize    = Size::Height(Dimension::Pc(0.1f)),
+		.maxSize    = Size::Height(Dimension::Pc(0.1f)),
 		.eDirection = EFlexDirection::RowReverse,
 	});
 	auto& accuracyStyle = world.GetComponent<Style>(
 		Widgets::SpawnText(world, hTop, {1.f, 1.f, 1.f, 1.f}, appearance.Font,
 						   "Accuracy", AccuracyText{}));
-	accuracyStyle.maxSize.width = Dimension::Pc(0.5f);
+	accuracyStyle.maxSize.width = Dimension::Pc(0.1f);
 
 	// Center vbox
 	auto hCenter = Widgets::UINode(world, "Center", Style {
 		.colour     = {0.f, 1.f, 0.f, 0.f},
-		.size       = Size::Height(Dimension::Pc(0.8f)),
-		.minSize    = Size::Height(Dimension::Pc(0.8f)),
+		.minSize    = Size::Height(Dimension::Pc(0.5f)),
 		.eDirection = EFlexDirection::Row,
 		});
 
 	//Bottom hbox
 	auto hBottom = Widgets::UINode(world, "Bottom", Style {
 		.colour     = {0.f, 0.f, 1.f, 0.f},
-		.size       = Size::Height(Dimension::Pc(0.1f)),
 		.minSize    = Size::Height(Dimension::Pc(0.1f)),
+		.maxSize    = Size::Height(Dimension::Pc(0.1f)),
 		.eDirection = EFlexDirection::Row,
 	});
 	Widgets::SpawnText(world, hBottom, {1.f, 1.f, 1.f, 1.f}, appearance.Font, "Combo", ComboText{});

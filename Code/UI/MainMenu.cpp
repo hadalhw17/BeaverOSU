@@ -11,9 +11,12 @@ namespace OSU::UI {
 using namespace Raven;
 using namespace Raven::UI;
 struct MenuRoot {};
-struct SongSelect { std::string Path; };
+struct SongSelect { std::string Path; std::string BGImage; };
 struct ScrollList {
 	float ScrollOffset = 0.f;
+};
+struct PreviewImage {
+	Handle<CImage> Image;
 };
 
 struct UIState {
@@ -44,7 +47,7 @@ void UpdateScrollList(
 			auto& list  = interactedLists.get<ScrollList>(hList);
 			auto& style = interactedLists.get<Style>(hList);
 			list.ScrollOffset += e.yOffset * 100.f;
-			style.padding.crossStart = Dimension::Px(list.ScrollOffset);
+			style.padding.Top = Dimension::Px(list.ScrollOffset);
 		}
 	}
 }
@@ -54,7 +57,7 @@ void SpawnListItems(
 	const Query<With<Initialised<ScrollList>, ScrollList>>& lists) {
 	for(auto hList: lists) {
 		Detail::ForEachSong([&](std::filesystem::path path) {
-			Widgets::SpawnButton(world, hList, SColourF{0.f, 0.f, 0.f, 0.1f},
+			Widgets::SpawnButton(world, hList, SColourF::Black(0.1f),
 								 appearance.Font,
 								 path.filename().stem().string(),
 								 Tags::NoSerialise{}, Tags::NoCopy{},
@@ -67,10 +70,11 @@ void SpawnListItems(
 
 void SpawnSongList(CWorld& world, const Query<With<Initialised<MenuRoot>>>& menus) {
 	for(auto hMenu: menus) {
-		auto hList = Widgets::UINode(world, "SongList", Style {
-			.colour = {0.8f, 0.1f, 0.1f, 1.f},
-			.size    = {.width = Dimension::Percent(0.4f), .height = Dimension::Percent(1.f)},
-			.maxSize = {.width = Dimension::Percent(0.4f), .height = Dimension::Percent(1.f)},
+		auto hList   = Widgets::UINode(world, "SongList", Style {
+			.colour  = {0.8f, 0.1f, 0.1f, 0.8f},
+			.margin  = Rect{.Right = Dimension::Pc(.02f)},
+			.size    = Size::Width(Dimension::Pc(0.4f)),
+			.maxSize = Size::Width(Dimension::Pc(0.4f)),
 			.eDirection = EFlexDirection::Column,
 		});
 		world.AddChild(hMenu, hList);
@@ -84,12 +88,15 @@ void AddPreview(CWorld& world, App& app, SAssetManager& mgr,
 							WithOut<Audio::Player>>& selected,
 				const Assets<CBeatmap>&              beatmaps) {
 	for (auto& hSel : selected) {
-		const auto& song  = selected.get<SongSelect>(hSel);
-		auto        hSong = mgr.Load(app, beatmaps
-											  .Get(mgr.Load(app, song.Path)
-													   .OnSuccess()
-													   .Typed<CBeatmap>())
-											  ->GetSongPath())
+		const auto& song     = selected.get<SongSelect>(hSel);
+
+		const auto* pBeatmap = beatmaps.Get(
+			mgr.Load(app, song.Path).OnSuccess().Typed<CBeatmap>());
+
+		if (!pBeatmap)
+			continue;
+
+		auto hSong = mgr.Load(app, pBeatmap->GetSongPath())
 						 .OnSuccess()
 						 .Typed<Audio::Sound>();
 
@@ -99,6 +106,10 @@ void AddPreview(CWorld& world, App& app, SAssetManager& mgr,
 														.Volume        = 1.f,
 														.IsLooping     = true,
 														.IsPlaying     = true});
+		const auto bgImage = LoadBackgroundImage(app, mgr, *pBeatmap);
+		if (bgImage) {
+			world.AddComponent<PreviewImage>(hSel, bgImage);
+		}
 	}
 }
 
@@ -108,17 +119,26 @@ void RemovePreview(
 		selected) {
 	for (auto& hSel : selected) {
 		world.RemoveComponent<Audio::Player>(hSel);
+		if(world.Has<PreviewImage>(hSel)) {
+			world.RemoveComponent<PreviewImage>(hSel);
+		}
 	}
 }
 
-void EnsureBGMusic(CWorld&                                     world,
-				   const Query<With<MenuRoot, Audio::Player>>& bgPlayer) {
+void EnsureBGMusic(
+	CWorld&                                            world,
+	const Query<With<MenuRoot, Style, Audio::Player>>& bgPlayer) {
 	for (auto hBg : bgPlayer) {
 		auto& bg               = bgPlayer.get<Audio::Player>(hBg);
+		auto& style            = bgPlayer.get<Style>(hBg);
 		bool  areSongsSelected = false;
+		Handle<CImage> previewImage{};
 		for ([[maybe_unused]] auto hSelected :
 			 world.Query<SongSelect, Audio::Player>()) {
 			areSongsSelected = true;
+			if(world.Has<PreviewImage>(hSelected)) {
+				previewImage = world.GetComponent<PreviewImage>(hSelected).Image;
+			}
 			break;
 		}
 
@@ -126,6 +146,14 @@ void EnsureBGMusic(CWorld&                                     world,
 			bg.Pause();
 		} else {
 			bg.Play();
+		}
+
+		if (previewImage) {
+			world.AddOrReplace<Raven::UI::Image>(hBg, previewImage);
+			style.colour = SColourF::White();
+		} else if (!previewImage && world.Has<Raven::UI::Image>(hBg)) {
+			world.RemoveComponent<Raven::UI::Image>(hBg);
+			style.colour = SColourF::White(0.8f);
 		}
 	}
 }
@@ -155,12 +183,13 @@ void SpawnSong(CWorld& world, App& app, SAssetManager& mgr,
 }
 
 void OpenMenu(CWorld& world, App& app, SAssetManager& mgr) {
-	auto hMenu = Widgets::UINode(world, "Menu Root", Style {
-		.colour  = {1.f, 1.f, 1.f, 0.8f},
-		.size    = {.width = Dimension::Percent(1.f), .height = Dimension::Percent(1.f)},
-		.minSize = {.width = Dimension::Percent(1.f), .height = Dimension::Percent(1.f)},
-		.eDirection = EFlexDirection::RowReverse,
-	});
+	auto hMenu = Widgets::UINode(world, "Menu Root",
+		Style {
+			.colour     = SColourF::White(0.8f),
+			.size       = Size::All(Dimension::Pc(1.f)),
+			.minSize    = Size::All(Dimension::Pc(1.f)),
+			.eDirection = EFlexDirection::RowReverse,
+		});
 	world.AddComponent<MenuRoot>(hMenu);
 	world.AddComponent<Root>(hMenu);
 	world.AddComponent<Audio::Player>(

@@ -70,7 +70,7 @@ void CreateScoreDriver(CWorld& world, const Skin& skin, const Raven::TEntity& ds
 	auto hScoreHitEnt = world.CreateEntity("HitEffect");
 	world.AddComponent<ScoreDriver>(dst, score, 0.f, ScoreLifetime + extraDuration, hScoreHitEnt);
 
-	world.AddComponent<STransformComponent>(hScoreHitEnt).m_translation = float3{pos, -10.f};
+	world.AddComponent<STransformComponent>(hScoreHitEnt).m_translation = float3{pos, 10.f};
 	world.AddComponent<Sprite::SSprite>(hScoreHitEnt).hImg =
 		GetScoreSpriteTexture(score, skin);
 }
@@ -131,14 +131,30 @@ class CBeatmapLoader : public Raven::IAssetLoader {
 		}
 	}
 
-	void LoadGeneralInfo(CBeatmap& map, std::istringstream& data, const Context& ctx) {
+	void LoadEvents(CBeatmap& map, std::istringstream& data) {
+
+		std::string line;
+		while(std::getline(data, line)) {
+			auto substrings = Detail::GetSubstrings(line, ',');
+			if(line.empty() || line[0] == '\r')
+				break;
+			[[maybe_unused]] const bool isEvent = substrings.size() == 3;
+			[[maybe_unused]] const bool isBG    = substrings.size() == 5 && substrings[0][0] == '0' && substrings[1][0] == '0';
+			[[maybe_unused]] const bool isVideo = substrings.size() == 5 && (substrings[0] == "Video" || substrings[0][0] == '1');
+			[[maybe_unused]] const bool isBreak = substrings.size() == 3 && substrings[0] == "2";
+
+			if(isBG) {
+				map.m_backgroundPath = fmt::format("{}/{}", map.m_path, Detail::Trim(substrings[2], " \"\r"));
+			}
+
+		}
+	}
+
+	void LoadGeneralInfo(CBeatmap& map, std::istringstream& data) {
 		#define READ_GENERAL(name)                                                      \
 			if (substrings[0] == #name) {                                              \
 				Parse(substrings[1], map.m_general.name);                              \
 			}
-
-		std::filesystem::path path{ctx.absolutePath};
-		path = path.parent_path();
 
 		std::string line;
 		while(std::getline(data, line)) {
@@ -147,8 +163,7 @@ class CBeatmapLoader : public Raven::IAssetLoader {
 				break;
 
 			if(substrings[0] == "AudioFilename") {
-				map.m_general.AudioFilename =
-					std::filesystem::path{path / substrings[1]}.string();
+				map.m_general.AudioFilename = fmt::format("{}/{}", map.m_path, substrings[1]);
 			}
 			READ_GENERAL(AudioLeadIn);
 			READ_GENERAL(AudioHash);
@@ -196,15 +211,19 @@ class CBeatmapLoader : public Raven::IAssetLoader {
 			if (line.starts_with("[HitObjects]")) {
 				LoadHitObjects(osuFileStream, hitObjects);
 			} else if(line.starts_with("[General]")) {
-				LoadGeneralInfo(map, osuFileStream, ctx);
+				LoadGeneralInfo(map, osuFileStream);
 			} else if(line.starts_with("[Difficulty]")) {
 				LoadDifficulty(map, osuFileStream);
+			} else if(line.starts_with("[Events]")) {
+				LoadEvents(map, osuFileStream);
 			}
 		}
 	}
 
 	Result Load(Raven::App& app, Context ctx) final {
 		CBeatmap map{};
+		std::filesystem::path path{ctx.absolutePath};
+		map.m_path = path.parent_path().string();
 		ParseFile(map, ctx);
 		return Result::Success(app.GetResource<Raven::Assets<CBeatmap>>()
 								   ->Create(std::move(map))
@@ -248,6 +267,9 @@ void InitialiseHitObjects(
 		if (!pBeatmap)
 			continue;
 		comp.Difficulty = pBeatmap->GetDifficulty();
+
+		// Offset hit objects to not be clipped by screen
+		world.AddOrReplace<STransformComponent>(hBmap).m_translation.xy = float2{100, 100};
 		world.AddComponent<GameScores>(hBmap);
 		auto hSong      = mgr.Load(app, pBeatmap->GetSongPath())
 						 .OnSuccess()
@@ -294,6 +316,7 @@ void RemoveAllMaps(CWorld& world, const Query<With<CBeatmapController>>& beatmap
 		world.RemoveEntity(hController);
 	}
 }
+
 void EndSimulation(
 	CWorld& world,
 	const Query<With<CBeatmapController, SParentComponent, Audio::Player>>& controllers,
@@ -467,15 +490,12 @@ void GetMousePos(CWorld&                                  world,
 									  static_cast<uint32>(e.newPosY)} -
 								RI.CursorPositionOffset;
 
-		constexpr float2 OSUResolution = {640, 480};
-		const float2     renderRes     = RI.m_resolution;
-		const float2     resScale      = renderRes / OSUResolution;
-		auto fromOSUPixels = [resScale](const float2 px) {
-			return px * resScale;
-		};
-		auto toOSUPixels = [resScale](const float2 px) {
-			return px / resScale;
-		};
+		constexpr float2 OSUResolution     = {640, 480};
+		constexpr float2 TextureResolution = {1024, 768};
+
+		const float2     renderRes         = float2{RI.m_resolution} * 0.9f;
+		const float2     resScale          = renderRes / OSUResolution;
+		const float2     texScale          = renderRes / TextureResolution;
 
 		if(!world.Has<ActiveMousePos>(hInfo)) {
 			auto hCursor = world.CreateEntity("CursorParticles");
@@ -488,6 +508,7 @@ void GetMousePos(CWorld&                                  world,
 					.ToSpawn = 100,
 				});
 
+			world.AddComponent<ResolutionConversion>(hInfo);
 			world.AddOrReplace<ActiveMousePos>(hInfo,
 											   ActiveMousePos{
 												   .Pos          = cursorPos,
@@ -495,29 +516,33 @@ void GetMousePos(CWorld&                                  world,
 											   });
 		}
 
-		auto& pos = world.GetComponent<ActiveMousePos>(hInfo);
-		pos.Pos = cursorPos;
-		pos.FromOSUScale = resScale;
-		pos.ToOsuScale   = 1.f / resScale;
+		auto& pos             = world.GetComponent<ActiveMousePos>(hInfo);
+		pos.Pos               = cursorPos;
+
+		auto& conv            = world.GetComponent<ResolutionConversion>(hInfo);
+		conv.AspectRatio      = renderRes.x / renderRes.y;
+		conv.FromOSUScale     = resScale;
+		conv.ToOsuScale       = 1.f / resScale;
+		conv.FromTextureScale = texScale;
+		conv.ToTextureScale   = 1.f / texScale;
 	}
 }
 
 bool AreKeysDown() {
-	return CInput::IsMouseButtonDown(EMouseBtn::Left) ||
-		   CInput::IsKeyDown(EKey::D) || CInput::IsKeyDown(EKey::F);
+	return CInput::IsKeyDown(EKey::D) || CInput::IsKeyDown(EKey::F);
 }
 
 void UpdateHovered(CWorld& world, const Skin& skin,
 				   const Query<With<VisibilityProperties, WorldSpaceTransform,
 									DifficultyProperties, HitObject>>& objs,
-				   const Query<With<ActiveMousePos>>& activeMouse) {
-	const ActiveMousePos& mouse = activeMouse.GetSingle();
+				   const Query<With<ActiveMousePos, ResolutionConversion>>& activeMouse) {
+	const auto& [mouse, conv] = activeMouse.GetSingle();
 	for(auto hObj: objs) {
-		const auto pos  = objs.get<WorldSpaceTransform>(hObj).m_translation.xy();
+		const auto& pos = objs.get<WorldSpaceTransform>(hObj).m_translation.xy();
 		const auto& dif = objs.get<DifficultyProperties>(hObj);
 		const auto& vis = objs.get<VisibilityProperties>(hObj);
 
-		const bool  isHovered = glm::distance(pos, float2{float2{mouse.Pos} * mouse.ToOsuScale}) < dif.Radius;
+		const bool  isHovered = glm::distance(pos, float2{float2{mouse.Pos} * conv.ToOsuScale}) < dif.Radius;
 		if(isHovered) {
 			world.AddOrReplace<Hovered>(hObj);
 			if(AreKeysDown() && !world.Has<ScoreDriver>(hObj)) {
@@ -529,7 +554,7 @@ void UpdateHovered(CWorld& world, const Skin& skin,
 				} else {
 					score = 50;
 				}
-				CreateScoreDriver(world, skin, hObj, score, pos * mouse.FromOSUScale, dif.DurationTotal);
+				CreateScoreDriver(world, skin, hObj, score, pos * conv.FromOSUScale, dif.DurationTotal);
 			}
 		} else if (world.Has<Hovered>(hObj)) {
 			world.RemoveComponent<Hovered>(hObj);
@@ -547,11 +572,11 @@ void MarkMissedNotes(CWorld& world, const Skin& skin,
 					 const Query<With<Removed<VisibilityProperties>, HitObject,
 									  WorldSpaceTransform>,
 								 WithOut<ScoreDriver>>& missed,
-					 const Query<With<ActiveMousePos>>& activeMouse) {
-	const ActiveMousePos& mouse = activeMouse.GetSingle();
+					 const Query<With<ResolutionConversion>>& activeMouse) {
+	const ResolutionConversion& res = activeMouse.GetSingle();
 	for(const auto hMissed: missed) {
 		const auto pos = missed.get<WorldSpaceTransform>(hMissed).m_translation.xy();
-		CreateScoreDriver(world, skin, hMissed, 0, pos * mouse.FromOSUScale, 0);
+		CreateScoreDriver(world, skin, hMissed, 0, pos * res.FromOSUScale, 0);
 	}
 }
 
