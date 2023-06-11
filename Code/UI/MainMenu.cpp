@@ -163,13 +163,15 @@ void SpawnListItems(
 	const Query<With<Initialised<ScrollList>, ScrollList>>& lists) {
 	for(auto hList: lists) {
 		Detail::ForEachSong([&](std::filesystem::path path) {
-			Widgets::SpawnButton(world, hList, SColourF::Black(0.1f),
-								 appearance.Font,
-								 path.filename().stem().string(),
-								 Tags::NoSerialise{}, Tags::NoCopy{},
-								 SongSelect{
-									 .Path = path.string(),
-								 });
+			world
+				.GetComponent<Style>(Widgets::SpawnButton(
+					world, hList, SColourF::Black(0.1f), appearance.Font,
+					path.filename().stem().string(), Tags::NoSerialise{},
+					Tags::NoCopy{},
+					SongSelect{
+						.Path = path.string(),
+					}))
+				.Flex(0.f, 0.f);
 		});
 	}
 }
@@ -196,17 +198,19 @@ void SpawnSettings(CWorld& world, Appearance& appearance,
 			UIBuilder(hMenu, world)
 				.Create("SettingWnd", Style::VBox(Size::Width(40_pc))
 										  .Colour(SColourF::Grey(0.2f, 0.8f))
-										  .AlignItems(EAlignItems::Center)
-										  .AlignSelf(EAlignSelf::FlexEnd)
+										  .AlignItems(EAlignItems::Stretch)
+										  //.AlignSelf(EAlignSelf::FlexEnd)
 										  .MinSize(Size::Width(40_pc))
 										  .MaxSize(Size::Width(40_pc))
-										  .Margin(Rect{.Left   = 3_pc,
-													   .Right  = 20_pc,
-													   .Top    = 3_pc,
-													   .Bottom = 3_pc})
+										  .Margin(Rect{.Left   = 1_pc,
+													   .Right  = 1_pc,
+													   .Top    = 1_pc,
+													   .Bottom = 1_pc})
 										  .Border(Rect::All(1_pc)));
 
-		settingWnd.Text("SETTINGS", appearance.Font);
+		settingWnd.Text("SETTINGS", appearance.Font)
+			.Style()
+			.AlignSelf(EAlignSelf::Center);
 
 		std::array Sliders = {
 			std::tuple{"BG Fade: ", &appearance.BGDim, 0.f, 1.f},
@@ -214,14 +218,13 @@ void SpawnSettings(CWorld& world, Appearance& appearance,
 		};
 
 		settingWnd
-			.Create("SettingsRoot", Style::VBox(Size::Width(90_pc))
+			.Create("SettingsRoot", Style::VBox(Size::Auto())
 										.Colour(SColourF::Grey(0.3f, 0.1f))
-										.AlignItems(EAlignItems::FlexStart))
+										.AlignItems(EAlignItems::Stretch)
+										.AlignSelf(EAlignSelf::Stretch))
 			.WithChildren(static_cast<uint32>(Sliders.size()), [&](UIBuilder builder, int idx) {
 				builder.Style()
 					.Colour(SColourF::Grey(0.9f, 0.1f))
-					.MinSize(Size(90_pc, 5_pc))
-					.MaxSize(Size(100_pc, 10_pc))
 					.Margin(Rect::All(1_pc))
 					.FlexShrink(1.f)
 					.AlignItems(EAlignItems::Center);
@@ -349,7 +352,9 @@ void OpenMenu(CWorld& world, App& app, SAssetManager& mgr) {
 		Style {
 			.colour     = SColourF::White(0.8f),
 			.size       = Size::All(100_pc),
-			.eDirection = EFlexDirection::RowReverse,
+			.flexShrink = 0.f,
+			.eDirection = EFlexDirection::Row,
+			.eJustifyContent = EFlexJustifyContent::SpaceBetween,
 		});
 	world.AddComponent<MenuRoot>(hMenu);
 	world.AddComponent<Root>(hMenu);
@@ -367,16 +372,6 @@ void OpenMenu(CWorld& world, App& app, SAssetManager& mgr) {
 
 void CloseMenu(CWorld& world, const Query<With<MenuRoot>>& menus) {
 	world.RemoveEntity(menus.front());
-}
-
-template <typename T> SystemDesc MenuEnterSystem(T&& sys) {
-	return SystemDesc{std::forward<T>(sys)}.WithCondition(
-		State<EGameState>::OnEnter(EGameState::Menu));
-}
-
-template <typename T> SystemDesc MenuLeaveSystem(T&& sys) {
-	return SystemDesc{std::forward<T>(sys)}.WithCondition(
-		State<EGameState>::OnExit(EGameState::Menu));
 }
 
 template <typename T> SystemDesc MenuPauseSystem(T&& sys) {
@@ -408,8 +403,8 @@ void BuildUIPlugin(Raven::App& app) {
 		.AddSystem(DefaultStages::PRE_UPDATE, &UpdateDrag)
 		.AddSystem(DefaultStages::PRE_UPDATE, &UpdateSliderValue)
 		.AddSystem(DefaultStages::PRE_UPDATE, &UpdateSliderHandle)
-		.AddSystem(DefaultStages::PRE_UPDATE, &SpawnSongList)
 		.AddSystem(DefaultStages::PRE_UPDATE, &SpawnSettings)
+		.AddSystem(DefaultStages::PRE_UPDATE, &SpawnSongList)
 		.AddSystem(DefaultStages::PRE_UPDATE, &SpawnListItems)
 		.AddSystem(DefaultStages::PRE_UPDATE, &SpawnSong)
 		.AddSystem(DefaultStages::UPDATE, &AddPreview)

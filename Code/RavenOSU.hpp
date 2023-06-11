@@ -9,6 +9,7 @@ class CImage;
 namespace OSU {
 enum class EGameState{
 	None = 0,
+	SplashScreen,
 	Menu,
 	Playing,
 	Paused,
@@ -93,6 +94,10 @@ struct Skin {
 	TImageMap Images;
 };
 
+struct GameWorld {
+	Raven::Handle<Raven::CWorld> World{};
+};
+
 class CBeatmapLoader;
 class CBeatmap {
   public:
@@ -141,5 +146,16 @@ template <typename T> Raven::SystemDesc GameExitSystem(T&& sys) {
 	return Raven::SystemDesc{std::forward<T>(sys)}.WithCondition(
 		Raven::State<EGameState>::OnExit(EGameState::Playing));
 }
+
+template <typename T> Raven::SystemDesc MenuEnterSystem(T&& sys) {
+	return Raven::SystemDesc{std::forward<T>(sys)}.WithCondition(
+		Raven::State<EGameState>::OnEnter(EGameState::Menu));
+}
+
+template <typename T> Raven::SystemDesc MenuLeaveSystem(T&& sys) {
+	return Raven::SystemDesc{std::forward<T>(sys)}.WithCondition(
+		Raven::State<EGameState>::OnExit(EGameState::Menu));
+}
+
 
 } // namespace OSU

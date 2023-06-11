@@ -666,16 +666,38 @@ void ToggleSimulation(Raven::App& app, GameState& state, Raven::CWorld& world) {
 		app.GetResource<State<EGameState>>()->Push(EGameState::Menu);
 	}
 
+
 	// Create game settings if they were not created manually
 	//if(world.Query<GameSettings>().empty()) {
 	//	world.AddComponent<GameSettings>(world.CreateEntity("GameSettings"));
 	//}
 }
 
+void CreateGameWorld(Raven::App& app, Assets<CWorld>& worlds) {
+	if(app.GetResource<IRavenEditor>() || app.GetResource<GameWorld>())
+		return;
+	auto hWorld = worlds.Create();
+	app.CreateResource<GameWorld>(hWorld);
+
+	auto* pWorld = worlds.GetMut(hWorld);
+	pWorld->SetSimulationEnabled(true);
+	pWorld->SetIsPaused(false);
+
+	auto hCam = pWorld->CreateEntity("Camera");
+	auto& cam = pWorld->AddComponent<SCameraComponent>(hCam);
+	cam.isActive = true;
+	pWorld->AddComponent<STransformComponent>(hCam).m_translation.y = 10.f;
+	pWorld->AddOrReplace<SRenderInfo>(hCam);
+	const auto& hWnd = *app.GetResource<Raven::Window::MainWindow>();
+	app.GetResource<Window::Windows>()->Get(hWnd)->Name("Raven OSU");
+	pWorld->AddComponent<Raven::RenderTargetT>(hCam, hWnd.m_hId);
+}
+
 void BuildRenderingPlugin(Raven::App& app);
 namespace UI {
 	void BuildUIPlugin(Raven::App& app);
 	void BuildPlayerHUD(Raven::App& app);
+	void BuildSplashScreen(Raven::App& app);
 }
 
 template <typename T> SystemDesc GameSystem(T&& sys) {
@@ -708,6 +730,7 @@ struct Plugin {
 			.AddComponent<HitObject>()
 			.AddComponent<VisibilityProperties>() // To dispatch signals
 			.AddComponent<ScoreDriver>() // To dispatch signals
+			.AddSystem(OSU::StateStage, MenuEnterSystem(&OSU::CreateGameWorld))
 			.AddSystem(DefaultStages::FIRST, &ToggleSimulation)
 			.AddSystem(OSU::StateStage, GameStartSystem(&OSU::InitialiseHitObjects))
 			.AddSystem(DefaultStages::PRE_UPDATE, &OSU::ComputeDifficultyProps)
@@ -748,6 +771,7 @@ int main(int argc, char* argv[]) {
 	Raven::App& app = Raven::App::Get();
 	Raven::Handle<Raven::CWorld> hGameWorld{};
 
+	OSU::UI::BuildSplashScreen(app);
 	app.AddPlugin<OSU::Plugin>();
 
 	if(!params.m_bInitialiseEditor) {
@@ -756,21 +780,10 @@ int main(int argc, char* argv[]) {
 			app, "project://Assets/MyLove.rlevel");
 		hGameWorld = hRes.OnSuccess().Typed<Raven::CWorld>();
 #else
-		hGameWorld = app.GetResource<Assets<CWorld>>()->Create();
+		//hGameWorld = app.GetResource<Assets<CWorld>>()->Create();
 #endif
-
 		Raven::ICVarManager::Get()->SetBoolCVar("r.VolumetricFog", false);
-		auto* pWorld = app.GetResource<Assets<CWorld>>()->GetMut(hGameWorld);
-		pWorld->SetSimulationEnabled(true);
-		pWorld->SetIsPaused(false);
-		auto hCam = pWorld->CreateEntity("Camera");
-		auto& cam = pWorld->AddComponent<SCameraComponent>(hCam);
-		cam.isActive = true;
-		pWorld->AddComponent<STransformComponent>(hCam).m_translation.y = 10.f;
-		pWorld->AddOrReplace<SRenderInfo>(hCam);
-		const auto& hWnd = *app.GetResource<Raven::Window::MainWindow>();
-		app.GetResource<Window::Windows>()->Get(hWnd)->Name("Raven OSU");
-		pWorld->AddComponent<Raven::RenderTargetT>(hCam, hWnd.m_hId);
+
 	}
 
 	app.Run();

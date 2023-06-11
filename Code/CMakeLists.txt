@@ -20,6 +20,7 @@ file(GLOB UI
     UI/UICommon.hpp
     UI/MainMenu.cpp
     UI/PlayHUD.cpp
+    UI/SplashScreen.cpp
 )
 source_group(UI FILES ${UI})
 

@@ -57,7 +57,7 @@ namespace Widgets {
 		hText, Style{
 				   .colour   = {0.f, 0.f, 0.f, 1.f},
 				   .position = {.Left = Dimension::Percent(0.2f)},
-				   .size     = Size::Auto(),
+				   .size     = Size::Height(10_pc),
 			   });
 	world.AddComponent<Text>(hText,
 							 Text{.text = std::string{text}, .Font = hFont});
@@ -150,21 +150,23 @@ struct UIBuilder {
 		if (!label.empty()) {
 			Text(label, font)
 				.Style()
-				.Size(Size::All(10_pc))
+				.Size(Size::Height(10_pc))
 				.Padding(Rect::Horizontal(1_px))
-				.FlexShrink(2.f);
+				.FlexShrink(1.f);
 		}
 
 		return Create("SliderBG",
 					  Raven::UI::Style{
 						  .colour     = bgColour,
 						  .border     = Rect::Horizontal(1_px),
+						  .flexGrow   = 1.f,
 						  .flexShrink = 1.f,
 						  .eAlignSelf = EAlignSelf::Stretch,
 					  })
 			.Create("DragHandle",
 					Raven::UI::Style{
 						.colour      = handleColour,
+						.maxSize     = Size::Width(10_pc),
 						.aspectRatio = 0.5_pc,
 					})
 			.WithComponent(std::tuple<Slider, Raven::UI::Button>{
