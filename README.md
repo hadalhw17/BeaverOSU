@@ -1,2 +1,2 @@
-# RavenOSU
+# BeaverOSU
 OSU! clone using BeaverEngine
